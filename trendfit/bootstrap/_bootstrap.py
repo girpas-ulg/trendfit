@@ -89,43 +89,38 @@ def _cholesky_decomposition(t, gamma):
     return np.linalg.cholesky(mat + mat.transpose())
 
 
-def _gen_ar_wild_bootstrap_errors(t, residuals, gamma):
-    L = _cholesky_decomposition(t, gamma)
-    iid = np.random.normal(loc=0., scale=1., size=t.size)[:, None]
-
-    return (L @ iid).ravel() * residuals
-
-
 class BlockARWild(BootstrapEstimator):
     """Block Autoregressive Wild Bootstrap.
 
     Generate bootstrap samples with autocorrelated errors using the
-    method described in [add paper], which may be used with non-evenly
-    spaced samples.
+    method described in [add paper].
 
-    Unlike the Autoregressive Wild Bootstrap method described in [add
-    paper], this method is applied on successive subsets (blocks) of
-    the time series.
+    This method may be used with non-evenly spaced samples.
 
-    One limitation with this approach is that the autoregression is
+    Unlike the Autoregressive Wild Bootstrap method described in that
+    paper, the residuals are here split into contiguous blocks
+    (equally sized, except maybe for the last block), and
+    autocorrelated errors are generated independently for each of these
+    blocks.
+
+    One limitation of this approach is that the auto-correlation is
     "reset" each time when jumping from one block to another. However,
     in some cases this might be an acceptable approximation while
-    providing great optimization in both speed-up and memory usage
-    (the overall matrix size rapidly decreases when increasing the
-    number of blocks).
+    offering great optimization in both speed-up and memory usage.
+    Splitting the time-series in only a few number of blocks may
+    result in 10x speed-up.
 
-    To use the "classic" Autoregressive Wild Bootstrap method, just
-    set a block size equal or larger than the size of the time series.
+    To use the "full" Autoregressive Wild Bootstrap method, just set a
+    block size equal or larger than the actual size of the time
+    series.
 
     """
-
-    def __init__(self, model, n_samples=1000, block_size=500, ar_coef=None,
-                 save_models=False):
+    def __init__(self, model, block_size=500, ar_coef=None, **kwargs):
 
         self.block_size = block_size
         self.ar_coef = ar_coef
 
-        super().__init__(model, n_samples, save_models)
+        super().__init__(model, **kwargs)
 
     def _generate_bootstrap_err(self, t, residuals):
         # autoregressive coefficient
@@ -136,13 +131,20 @@ class BlockARWild(BootstrapEstimator):
         else:
             gamma = self.ar_coef
 
+        iid = np.random.normal(loc=0., scale=1., size=t.size)
+
         n_blocks = max(t.size // self.block_size, 1)
         t_blocks = np.array_split(t, n_blocks)
         residuals_blocks = np.array_split(residuals, n_blocks)
+        iid_blocks = np.array_split(iid, n_blocks)
+
+        def _gen_errors_block(tb, rb, iidb):
+            L = _cholesky_decomposition(tb, gamma)
+            return (L @ iidb).ravel() * rb
 
         return np.concatenate([
-            _gen_ar_wild_bootstrap_errors(tb, rb, gamma)
-            for tb, rb in zip(t_blocks, residuals_blocks)
+            _gen_errors_block(tb, rb, iidb)
+            for tb, rb, iidb in zip(t_blocks, residuals_blocks, iid_blocks)
         ])
 
     def _generate_bootstrap_sample(self):
