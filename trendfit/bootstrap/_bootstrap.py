@@ -82,6 +82,24 @@ class BootstrapEstimator(BaseEstimator):
         return ci_bounds
 
 
+class ResidualResampling(BootstrapEstimator):
+    """Residual Resampling Bootstrap.
+
+    Generate bootstrap samples by (1) randomly resampling the
+    residuals of the fitted model and (2) adding it to the predicted
+    values.
+
+    """
+    def __init__(self, model, **kwargs):
+        super().__init__(model, **kwargs)
+
+    def _generate_bootstrap_sample(self):
+        errors = self.model.residuals.copy()
+        np.random.shuffle(errors)
+
+        return self.model._y_predict + errors
+
+
 def _cholesky_decomposition(t, gamma):
     mat = np.triu(gamma**(t[None, :] - t[:, None]))
     np.fill_diagonal(mat, 0.5)
