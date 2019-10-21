@@ -4,15 +4,22 @@ from collections import defaultdict
 import numpy as np
 
 from ..base import BaseEstimator
+from ..options import OPTIONS
 
 
 class BootstrapEstimator(BaseEstimator):
 
-    def __init__(self, model, n_samples=1000, save_models=False):
+    def __init__(self, model, n_samples=1000, random_state=None,
+                 save_models=False):
 
         self.model = model
         self.n_samples = n_samples
         self.save_models = save_models
+
+        if isinstance(random_state, np.random.RandomState):
+            self.random_state = random_state
+        else:
+            self.random_state = np.random.RandomState(seed=random_state)
 
         super().__init__()
 
@@ -35,11 +42,14 @@ class BootstrapEstimator(BaseEstimator):
     def models(self):
         return self._models
 
-    def generate_bootstrap_sample(self):
+    def generate_bootstrap_sample(self, random_state=None):
         if not self.model._fitted:
             raise ValueError("Model not fitted.")
 
-        return self._generate_bootstrap_sample()
+        if random_state is None:
+            random_state = self.random_state
+
+        return self._generate_bootstrap_sample(random_state)
 
     def _generate_bootstrap_sample(self):
         raise NotImplementedError()
@@ -47,22 +57,33 @@ class BootstrapEstimator(BaseEstimator):
     def _fit(self, t, y):
         self.model.fit(t, y)
 
-        def fit_sample():
+        def fit_sample(random_state=None):
             mb = copy.deepcopy(self.model)
-            yb = self.generate_bootstrap_sample()
+            yb = self.generate_bootstrap_sample(random_state)
 
             mb.fit(t, yb)
 
-            return mb
-
-        for b in range(self.n_samples):
-            mb = fit_sample()
-
-            for k, v in mb.parameters.items():
-                self._parameter_dists[k].append(v)
+            pb = mb.parameters.copy()
 
             if self.save_models:
+                return mb, pb
+            else:
+                return None, pb
+
+        if OPTIONS['use_dask']:
+            import dask
+            dlyd = [dask.delayed(fit_sample)(np.random.RandomState())
+                    for _ in range(self.n_samples)]
+            res = dask.compute(*dlyd)
+        else:
+            res = [fit_sample() for _ in range(self.n_samples)]
+
+        for mb, pb in res:
+            if self.save_models:
                 self._models.append(mb)
+
+            for k, v in pb.items():
+                self._parameter_dists[k].append(v)
 
     def _predict(self, t):
         return self.model.predict(t)
@@ -93,9 +114,9 @@ class ResidualResampling(BootstrapEstimator):
     def __init__(self, model, **kwargs):
         super().__init__(model, **kwargs)
 
-    def _generate_bootstrap_sample(self):
+    def _generate_bootstrap_sample(self, random_state):
         errors = self.model.residuals.copy()
-        np.random.shuffle(errors)
+        random_state.shuffle(errors)
 
         return self.model._y_predict + errors
 
@@ -140,7 +161,7 @@ class BlockARWild(BootstrapEstimator):
 
         super().__init__(model, **kwargs)
 
-    def _generate_bootstrap_err(self, t, residuals):
+    def _generate_bootstrap_err(self, t, residuals, random_state):
         # autoregressive coefficient
         if self.ar_coef is None:
             th = 0.01**(1 / (1.75 * t.size**(1/3)))
@@ -149,7 +170,7 @@ class BlockARWild(BootstrapEstimator):
         else:
             gamma = self.ar_coef
 
-        iid = np.random.normal(loc=0., scale=1., size=t.size)
+        iid = random_state.normal(loc=0., scale=1., size=t.size)
 
         n_blocks = max(t.size // self.block_size, 1)
         t_blocks = np.array_split(t, n_blocks)
@@ -165,8 +186,9 @@ class BlockARWild(BootstrapEstimator):
             for tb, rb, iidb in zip(t_blocks, residuals_blocks, iid_blocks)
         ])
 
-    def _generate_bootstrap_sample(self):
+    def _generate_bootstrap_sample(self, random_state):
         errors = self._generate_bootstrap_err(self.model._t,
-                                              self.model.residuals)
+                                              self.model.residuals,
+                                              random_state)
 
         return self.model._y_predict + errors
