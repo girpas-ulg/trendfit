@@ -8,10 +8,33 @@ from ..options import OPTIONS
 
 
 class BootstrapEstimator(BaseEstimator):
+    """Base class for bootstrap algorithms."""
 
     def __init__(self, model, n_samples=1000, random_state=None,
                  save_models=False):
+        """
 
+        Parameters
+        ----------
+        model : object
+            Any estimator, i.e., any object having the estimator interface
+            (i.e., ``.fit`` and ``.predict`` methods, ``.parameters``
+            and ``.residuals`` properties).
+        n_samples: int, optional
+            Number of bootstrap samples generated (default: 1000).
+        random_state: int or object, optional
+            Random seed or an instance of :class:`numpy.random.RandomState`
+            used to generate the bootstrap samples, for reproducible
+            experiments. If None (default), a new random state is defined.
+            Note that this is ignored when running a bootstrap algorithm in
+            parallel using dask.
+        save_models: bool, optional
+            If True, save all estimator instances created during the
+            bootstrap run (default: False). This is useful, e.g., for
+            access to the bootstrap sample after it has been run. This
+            may consume a lot of memory!
+
+        """
         self.model = model
         self.n_samples = n_samples
         self.save_models = save_models
@@ -28,18 +51,29 @@ class BootstrapEstimator(BaseEstimator):
 
     @property
     def parameters(self):
+        """Returns the (fitted) parameters of the estimator."""
         return self.model.parameters
 
     @property
     def parameter_dists(self):
+        """Returns the bootstrap sampled distributions of
+        the parameters of the estimator.
+
+        """
         return self._parameter_dists
 
     @property
     def residuals(self):
+        """Returns the estimator residuals."""
         return self.model.residuals
 
     @property
     def models(self):
+        """Returns all estimator instances generated during
+        bootstrap.
+
+        Returns an empty list if ``save_models`` was set to False.
+        """
         return self._models
 
     def generate_bootstrap_sample(self, random_state=None):
@@ -89,6 +123,20 @@ class BootstrapEstimator(BaseEstimator):
         return self.model.predict(t)
 
     def get_ci_bounds(self, confidence_level=0.95):
+        """Get the confidence intervals from bootstrap results.
+
+        Parameters
+        ----------
+        confidence_level : float, optional
+            Level of confidence (default: 0.95).
+
+        Returns
+        -------
+        ci_bounds : dict of tuples
+            The (lower, upper) bounds of the confidence interval
+            for each parameter of the estimator.
+
+        """
         if not self._fitted:
             raise ValueError("run `.fit()` first")
 
@@ -99,7 +147,7 @@ class BootstrapEstimator(BaseEstimator):
             lower = np.quantile(v, alpha / 2, axis=0)
             upper = np.quantile(v, 1 - alpha / 2, axis=0)
 
-            ci_bounds[k] = [lower, upper]
+            ci_bounds[k] = (lower, upper)
 
         return ci_bounds
 
@@ -113,6 +161,32 @@ class ResidualResampling(BootstrapEstimator):
 
     """
     def __init__(self, model, **kwargs):
+        """
+
+        Parameters
+        ----------
+        model : object
+            Any estimator, i.e., any object having the estimator interface
+            (i.e., ``.fit`` and ``.predict`` methods, ``.parameters``
+            and ``.residuals`` properties).
+
+        Other Parameters
+        ----------------
+        n_samples: int, optional
+            Number of bootstrap samples generated (default: 1000).
+        random_state: int or object, optional
+            Random seed or an instance of :class:`numpy.random.RandomState`
+            used to generate the bootstrap samples, for reproducible
+            experiments. If None (default), a new random state is defined.
+            Note that this is ignored when running a bootstrap algorithm in
+            parallel using dask.
+        save_models: bool, optional
+            If True, save all estimator instances created during the
+            bootstrap run (default: False). This is useful, e.g., for
+            access to the bootstrap sample after it has been run. This
+            may consume a lot of memory!
+
+        """
         super().__init__(model, **kwargs)
 
     def _generate_bootstrap_sample(self, random_state):
@@ -133,15 +207,17 @@ class BlockARWild(BootstrapEstimator):
     """Block Autoregressive Wild Bootstrap.
 
     Generate bootstrap samples with autocorrelated errors using the
-    method described in [add paper].
+    method described in [1]_.
 
     This method may be used with non-evenly spaced samples.
 
-    Unlike the Autoregressive Wild Bootstrap method described in that
-    paper, the residuals are here split into contiguous blocks
-    (equally sized, except maybe for the last block), and
-    autocorrelated errors are generated independently for each of these
-    blocks.
+    Notes
+    -----
+
+    Unlike the Autoregressive Wild Bootstrap method described in [1]_,
+    the residuals are here split into contiguous blocks (equally
+    sized, except maybe for the last block), and autocorrelated errors
+    are generated independently for each of these blocks.
 
     One limitation of this approach is that the auto-correlation is
     "reset" each time when jumping from one block to another. However,
@@ -150,21 +226,75 @@ class BlockARWild(BootstrapEstimator):
     Splitting the time-series in only a few number of blocks may
     result in 10x speed-up.
 
-    To use the "full" Autoregressive Wild Bootstrap method, just set a
-    block size equal or larger than the actual size of the time
-    series.
+    To use the "full" Autoregressive Wild Bootstrap method presented
+    in [1]_, just set a block size equal or larger than the actual
+    size of the time series.
+
+    The value of the autoregressive coefficient should tend to 1 as
+    the size of the time series increases. In the absence of any given
+    value, it will be set according to [2]_.
+
+    References
+    ----------
+    .. [1] M. Friedrich, E. Beutner, H. Reuvers, S. Smeekes, J.-P. Urbain,
+    W. Bader, B. Franco, B. Lejeune, and E. Mahieu, 2019. "Nonparametric
+    estimation and bootstrap inference on trends in atmospheric time series:
+    an application to ethane". arXiv:1903.05403v1
+
+    ..[2] M. Friedrich, S. Smeekes, and J.-P. Urbain,
+    2019. "Autoregressive wild bootstrap inference for nonparametric
+    trends". Journal of Econometrics - Annals issue on econometric
+    models of climate change, forthcoming
 
     """
-    def __init__(self, model, block_size=500, ar_coef=None, **kwargs):
+    def __init__(self, model, ar_coef=None, block_size=500, **kwargs):
+        """
+
+        Parameters
+        ----------
+        model : object
+            Any estimator, i.e., any object having the estimator interface
+            (i.e., ``.fit`` and ``.predict`` methods, ``.parameters``
+            and ``.residuals`` properties).
+        ar_coef : float, optional
+            autoregressive coefficient. If None (default), it will be set
+            according to the size of the time-series.
+        block_size : int, optional
+            Size (number of samples) of the blocks (default: 500).
+
+        Other Parameters
+        ----------------
+        n_samples: int, optional
+            Number of bootstrap samples generated (default: 1000).
+        random_state: int or object, optional
+            Random seed or an instance of :class:`numpy.random.RandomState`
+            used to generate the bootstrap samples, for reproducible
+            experiments. If None (default), a new random state is defined.
+            Note that this is ignored when running a bootstrap algorithm in
+            parallel using dask.
+        save_models: bool, optional
+            If True, save all estimator instances created during the
+            bootstrap run (default: False). This is useful, e.g., for
+            access to the bootstrap sample after it has been run. This
+            may consume a lot of memory!
 
         self.block_size = block_size
         self.ar_coef = ar_coef
 
+        """
+        self.ar_coef = ar_coef
+        self.block_size = block_size
+
         super().__init__(model, **kwargs)
 
     def _generate_bootstrap_err(self, t, residuals, random_state):
-        # autoregressive coefficient
+
         if self.ar_coef is None:
+            # TODO: clarify this
+            # this is not consistent with what is described in the paper
+            # (in the paper, gamma, theta and l -> evenly spaced time-series)
+            #l = 1.75 * t.size**(1/3)
+            #gamma = 0.1**(1 / l)
             th = 0.01**(1 / (1.75 * t.size**(1/3)))
             l = 1 / 365.25
             gamma = th**(1. / l)
