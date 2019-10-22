@@ -70,7 +70,7 @@ class LinearTrendFourier(BaseEstimator):
 
 class DualLinearTrendFourier(LinearTrendFourier):
 
-    def __init__(self, ndegrees=3, t0=None):
+    def __init__(self, ndegrees=3, t_break=None, t0=None):
         super().__init__(ndegrees)
 
         if t0 is not None:
@@ -78,7 +78,8 @@ class DualLinearTrendFourier(LinearTrendFourier):
         else:
             self.t0 = None
 
-        self._parameters['t_break'] = None
+        self._fit_t_break = t_break is None
+        self._parameters['t_break'] = t_break
 
     def _regressor_terms(self, t, t_break):
         reg_idx, reg_terms = super()._regressor_terms(t)
@@ -103,20 +104,24 @@ class DualLinearTrendFourier(LinearTrendFourier):
             else:
                 return ssr[0]
 
-        res = dual_annealing(solve_for_location,
-                             [(t[1], t[-1])],
-                             x0=self.t0,
-                             maxiter=500)
+        if self._fit_t_break:
+            res = dual_annealing(solve_for_location,
+                                 [(t[1], t[-1])],
+                                 x0=self.t0,
+                                 maxiter=500)
 
-        self._parameters['t_break'] = res.x[0]
+            self._parameters['t_break'] = res.x[0]
 
         # rerun lstsq to properly set other parameter values
         reg_idx, reg_terms = self._regressor_terms(
             t, self._parameters['t_break']
         )
-        self._solve_lstsq(t, y, reg_idx, reg_terms)
+        res_lstsq = self._solve_lstsq(t, y, reg_idx, reg_terms)
 
-        return res
+        if self._fit_t_break:
+            return res
+        else:
+            return res_lstsq
 
     def _predict(self, t):
         reg_idx, reg_terms = self._regressor_terms(
