@@ -93,10 +93,11 @@ class BootstrapEstimator(BaseEstimator):
             raise ValueError("run `.fit()` first")
 
         ci_bounds = {}
+        alpha = 1 - confidence_level
 
         for k, v in self.parameter_dists.items():
-            lower = np.quantile(v, 1 - confidence_level, axis=0)
-            upper = np.quantile(v, confidence_level, axis=0)
+            lower = np.quantile(v, alpha / 2, axis=0)
+            upper = np.quantile(v, 1 - alpha / 2, axis=0)
 
             ci_bounds[k] = [lower, upper]
 
