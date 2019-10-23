@@ -173,13 +173,17 @@ def _cholesky_decomposition(t, gamma):
 
 class BlockARWildRunner(BootstrapRunner):
 
-    def __init__(self, model, ar_coef=None, block_size=500, **kwargs):
+    def __init__(self, model, ar_coef=None, block_size=500, use_cache=False,
+                 **kwargs):
         self.ar_coef = ar_coef
         self.block_size = block_size
+        self.use_cache = use_cache
 
         super().__init__(model, **kwargs)
 
-    def _generate_sample_err(self, t, residuals, random_state):
+    def _block_cholesky_decomp(self):
+        t = self.model._t
+
         if self.ar_coef is None:
             # TODO: clarify this
             # this is not consistent with what is described in the paper
@@ -192,32 +196,44 @@ class BlockARWildRunner(BootstrapRunner):
         else:
             gamma = self.ar_coef
 
-        iid = random_state.normal(loc=0., scale=1., size=t.size)
+        t_blocks = np.array_split(t, self._n_blocks)
 
-        n_blocks = max(t.size // self.block_size, 1)
-        t_blocks = np.array_split(t, n_blocks)
-        residuals_blocks = np.array_split(residuals, n_blocks)
-        iid_blocks = np.array_split(iid, n_blocks)
+        return [_cholesky_decomposition(tb, gamma) for tb in t_blocks]
 
-        def _gen_errors_block(tb, rb, iidb):
-            L = _cholesky_decomposition(tb, gamma)
-            return (L @ iidb).ravel() * rb
+    def _generate_sample_err(self, residuals, random_state):
+        if self.use_cache:
+            l_blocks = self._l_blocks
+        else:
+            l_blocks = self._block_cholesky_decomp()
+
+        iid = random_state.normal(loc=0., scale=1.,
+                                  size=self.model._t.size)
+
+        r_blocks = np.array_split(residuals, self._n_blocks)
+        iid_blocks = np.array_split(iid, self._n_blocks)
 
         return np.concatenate([
-            _gen_errors_block(tb, rb, iidb)
-            for tb, rb, iidb in zip(t_blocks, residuals_blocks, iid_blocks)
+            (lb @ iidb).ravel() * rb
+            for lb, rb, iidb in zip(l_blocks, r_blocks, iid_blocks)
         ])
 
     def generate_sample(self, random_state):
-        errors = self._generate_sample_err(self.model._t,
-                                           self.model.residuals,
+        errors = self._generate_sample_err(self.model.residuals,
                                            random_state)
 
         return self.model._y_predict + errors
 
+    def run(self):
+        self._n_blocks = max(self.model._t.size // self.block_size, 1)
+
+        if self.use_cache:
+            self._l_blocks = self._block_cholesky_decomp()
+
+        super().run()
+
 
 def block_ar_wild(model, ar_coef=None, block_size=500, n_samples=1000,
-                  **kwargs):
+                  use_cache=False, **kwargs):
     """Block Autoregressive Wild Bootstrap.
 
     Generate bootstrap samples with autocorrelated errors using the
@@ -236,8 +252,14 @@ def block_ar_wild(model, ar_coef=None, block_size=500, n_samples=1000,
         according to the size of the time-series.
     block_size : int, optional
         Size (number of samples) of the blocks (default: 500).
-    n_samples: int, optional
+    n_samples : int, optional
         Number of bootstrap samples generated (default: 1000)
+    use_cache : bool, optional
+        If True, eagerly compute Cholesky decomposition for generating
+        autocorrelated samples and cache the results in memory.
+        (default: False). Beware that if parallel computation is enabled
+        with dask (depending on which scheduler is used) this might be highly
+        memory expensive!!
 
     Other Parameters
     ----------------
@@ -289,7 +311,8 @@ def block_ar_wild(model, ar_coef=None, block_size=500, n_samples=1000,
 
     """
     runner = BlockARWildRunner(model, ar_coef=ar_coef, block_size=block_size,
-                               n_samples=n_samples, **kwargs)
+                               n_samples=n_samples, use_cache=use_cache,
+                               **kwargs)
 
     runner.run()
 
