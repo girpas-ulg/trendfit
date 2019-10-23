@@ -1,13 +1,13 @@
 import numpy as np
 
 from ..base import BaseEstimator
-from ..bootstrap import BlockARWild
+from ..bootstrap import block_ar_wild
 from ..models import LinearTrendFourier, LinearBrokenTrendFourier
 
 
 class _BrokenTrendTest(BaseEstimator):
-    """Implement the test as an estimator in order to easily wrap
-    it in bootstrap classes.
+    """Implement the test as an estimator so that using it with
+    a bootstrap algorithm is easy.
 
     """
     def __init__(self, model_trend, model_broken):
@@ -49,14 +49,13 @@ def broken_trend_test(t, y, f_order=3, alpha=0.05,
     m_trend = LinearTrendFourier(f_order=f_order)
     m_broken = LinearBrokenTrendFourier(f_order=f_order, **kw_m_broken)
 
-    model = BlockARWild(_BrokenTrendTest(m_trend, m_broken),
-                        **kw_bootstrap)
-
+    model = _BrokenTrendTest(m_trend, m_broken)
     model.fit(t, y)
 
-    s_statistic = model.parameters['s_statistic']
+    boot_res = block_ar_wild(model, **kw_bootstrap)
 
-    s_dist = model.parameter_dists['s_statistic']
+    s_statistic = model.parameters['s_statistic']
+    s_dist = boot_res.parameter_dists['s_statistic']
     greater_s = s_dist > s_statistic
 
     if any(greater_s):

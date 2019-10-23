@@ -5,4 +5,4 @@ parameters.
 
 """
 
-from ._bootstrap import BlockARWild, ResidualResampling
+from ._bootstrap import block_ar_wild, residual_resampling
