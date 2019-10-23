@@ -37,7 +37,73 @@ class _BrokenTrendTest(BaseEstimator):
 
 def broken_trend_test(t, y, f_order=3, alpha=0.05,
                       kw_model=None, kw_bootstrap=None):
+    """Test of simple linear trend model vs. broken trend model.
 
+    This is a formal test to determine whether or not the data
+    suggests a sudden change in trend.
+
+    Parameters
+    ----------
+    t : 1-D array
+        Time coordinate.
+    y : 1-D array
+        Time series data.
+    f_order : int, optional
+        Finite order of the truncated Fourier series (default=3).
+    alpha : float, optional
+        Significance level of the test (default: 0.05).
+    kw_model : dict, optional
+        Keyword arguments passed to
+        :class:`trendfit.models.LinearBrokenTrendFourier`
+    kw_bootstrap : dict, optional
+        Keyword arguments passed to
+        :func:`trendfit.bootstrap.block_ar_wild`
+
+    Returns
+    -------
+    s_statistic : float
+        The value of the test statistic (see below). For high values,
+        there is evidence that the model with break fits the data better.
+    p_value : float
+        P-value computed from the bootstrap estimated distribution.
+    crit_value : float
+        Critical value computed from the bootstrap estimated distribution
+        given ``alpha``, which determines the cutoff point of the test.
+
+    See Also
+    --------
+    :class:`trendfit.models.LinearTrendFourier`
+    :class:`trendfit.models.LinearBrokenTrendFourier`
+
+    Notes
+    -----
+    This test has the following pair of hypotheses:
+
+    .. math::
+
+       H_0 : \delta = 0\\
+       H_1 : \delta \neq 0
+
+    where :math:`\delta` is the change in trend slope.
+
+    The test statistic is computed by subtracting the sum of squares
+    of residuals of the fitted broken trend model to the sum of squares
+    of residuals of the simple trend model.
+
+    The location of the trend discontinuity (:math:`T_1`) is assumed
+    unknown here.
+
+    The P-value and the critical value are both obtained using autoregressive
+    wild bootstrap. See [1]_ for more details.
+
+    References
+    ----------
+    .. [1] M. Friedrich, E. Beutner, H. Reuvers, S. Smeekes, J-P. Urbain,
+    W. Bader, B. Franco, B. Lejeune, and E. Mahieu, 2019. "Nonparametric
+    estimation and bootstrap inference on trends in atmospheric time series:
+    an application to ethane" arXiv:1903.05403v1
+
+    """
     if kw_model is None:
         kw_m_broken = {}
     else:
@@ -58,6 +124,7 @@ def broken_trend_test(t, y, f_order=3, alpha=0.05,
     s_dist = boot_res.parameter_dists['s_statistic']
     greater_s = s_dist > s_statistic
 
+    # TODO: check if empty greater_s may really happen?
     if any(greater_s):
         p_value = np.mean(s_dist[greater_s])
     else:
