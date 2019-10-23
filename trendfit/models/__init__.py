@@ -4,4 +4,6 @@ time-series data.
 
 """
 
-from ._models import LinearTrendFourier, LinearBrokenTrendFourier
+from ._models import (LinearNoTrendFourier,
+                      LinearTrendFourier,
+                      LinearBrokenTrendFourier)

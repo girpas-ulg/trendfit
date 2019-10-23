@@ -4,11 +4,13 @@ from scipy.optimize import dual_annealing
 from ..base import BaseEstimator
 
 
-class LinearTrendFourier(BaseEstimator):
-    """Linear regression with a single trend and Fourier terms.
+class LinearNoTrendFourier(BaseEstimator):
+    """Linear regression with Fourier terms.
 
     The Fourier terms allow capturing the periodic variability in the
     time-series.
+
+    No trend is assumed in the time series.
 
     Notes
     -----
@@ -16,11 +18,10 @@ class LinearTrendFourier(BaseEstimator):
 
     .. math::
 
-       y_t = \alpha + \beta t + F_t + \epsilon_t
+       y_t = \alpha + F_t + \epsilon_t
 
-    where :math:`\alpha` is the intercept, :math:`\beta` is the slope,
-    :math:`\epsilon_t` is the error term and :math:`F_t` is the nth-order
-    approximated Fourier series, i.e.,
+    where :math:`\alpha` is the intercept, :math:`\epsilon_t` is the error
+    term and :math:`F_t` is the nth-order approximated Fourier series, i.e.,
 
     .. math::
 
@@ -30,7 +31,6 @@ class LinearTrendFourier(BaseEstimator):
     least squares (OLS).
 
     """
-
     def __init__(self, f_order=3):
         """
 
@@ -44,7 +44,6 @@ class LinearTrendFourier(BaseEstimator):
 
         self._parameters = {
             'intercept': None,
-            'trend': None,
             'fourier_terms': [],
         }
 
@@ -55,8 +54,8 @@ class LinearTrendFourier(BaseEstimator):
                 np.sin(2 * degree * np.pi * t)]
 
     def _regressor_terms(self, t):
-        # intercept, trend
-        reg_terms = [np.ones(t.size), t]
+        # intercept
+        reg_terms = [np.ones(t.size)]
 
         # fourier terms
         for degree in range(1, self.f_order + 1):
@@ -64,8 +63,7 @@ class LinearTrendFourier(BaseEstimator):
 
         reg_idx = {
             'intercept': 0,
-            'trend': 1,
-            'fourier_terms': slice(2, None)
+            'fourier_terms': slice(1, None)
         }
 
         return reg_idx, reg_terms
@@ -99,6 +97,64 @@ class LinearTrendFourier(BaseEstimator):
         reg_idx, reg_terms = self._regressor_terms(t)
 
         return self._compute_y(t, reg_idx, reg_terms)
+
+
+class LinearTrendFourier(LinearNoTrendFourier):
+    """Linear regression with a single trend and Fourier terms.
+
+    The Fourier terms allow capturing the periodic variability in the
+    time-series.
+
+    Notes
+    -----
+    The model is defined as follows:
+
+    .. math::
+
+       y_t = \alpha + \beta t + F_t + \epsilon_t
+
+    where :math:`\alpha` is the intercept, :math:`\beta` is the slope,
+    :math:`\epsilon_t` is the error term and :math:`F_t` is the nth-order
+    approximated Fourier series, i.e.,
+
+    .. math::
+
+       F_t = \sum{j=1}{M} a_j \cos(2 j \pi t) + b_j \sin(2 j \pi t)
+
+    This model is fitted to :math:`\{t, y_t\}` data using ordinary
+    least squares (OLS).
+
+    """
+    def __init__(self, f_order=3):
+        """
+
+        Parameters
+        ----------
+        f_order : int, optional
+            Finite order of the truncated Fourier series (default=3).
+
+        """
+        super().__init__(f_order)
+
+        self._parameters = {
+            'intercept': None,
+            'trend': None,
+            'fourier_terms': [],
+        }
+
+    def _regressor_terms(self, t):
+        reg_idx, reg_terms = super()._regressor_terms(t)
+
+        # add trend
+        reg_terms.insert(1, t)
+
+        reg_idx.update({
+            'intercept': 0,
+            'trend': 1,
+            'fourier_terms': slice(2, None)
+        })
+
+        return reg_idx, reg_terms
 
 
 class LinearBrokenTrendFourier(LinearTrendFourier):
