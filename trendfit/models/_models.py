@@ -291,3 +291,25 @@ class LinearBrokenTrendFourier(LinearTrendFourier):
         )
 
         return self._compute_y(t, reg_idx, reg_terms)
+
+
+class NonParametricTrend(BaseEstimator):
+
+    def __init__(self, f_order=3):
+        self.f_order = f_order
+
+        self._parameters = {
+            'fourier_terms': [],
+            'intercept': None,
+        }
+
+        super().__init__()
+
+    def _fit(self, t, y):
+        fourier_model = LinearNoTrendFourier(f_order=self.f_order)
+        fourier_model.fit(t, y)
+
+        self._parameters.update(fourier_model.parameters)
+
+        y_ = fourier_model.residuals
+        t_ = (t - t[0]) / (t[-1] - t[0])
