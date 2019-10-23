@@ -43,8 +43,8 @@ class LinearNoTrendFourier(BaseEstimator):
         self.f_order = f_order
 
         self._parameters = {
-            'intercept': None,
             'fourier_terms': [],
+            'intercept': None,
         }
 
         super().__init__()
@@ -54,16 +54,18 @@ class LinearNoTrendFourier(BaseEstimator):
                 np.sin(2 * degree * np.pi * t)]
 
     def _regressor_terms(self, t):
-        # intercept
-        reg_terms = [np.ones(t.size)]
+        reg_terms = []
 
         # fourier terms
         for degree in range(1, self.f_order + 1):
             reg_terms += self._fourier_terms(t, degree)
 
+        # intercept
+        reg_terms.append(np.ones(t.size))
+
         reg_idx = {
-            'intercept': 0,
-            'fourier_terms': slice(1, None)
+            'fourier_terms': slice(0, self.f_order * 2),
+            'intercept': self.f_order * 2
         }
 
         return reg_idx, reg_terms
@@ -136,23 +138,14 @@ class LinearTrendFourier(LinearNoTrendFourier):
         """
         super().__init__(f_order)
 
-        self._parameters = {
-            'intercept': None,
-            'trend': None,
-            'fourier_terms': [],
-        }
+        self._parameters.update({'trend': None})
 
     def _regressor_terms(self, t):
         reg_idx, reg_terms = super()._regressor_terms(t)
 
         # add trend
-        reg_terms.insert(1, t)
-
-        reg_idx.update({
-            'intercept': 0,
-            'trend': 1,
-            'fourier_terms': slice(2, None)
-        })
+        reg_terms.append(t)
+        reg_idx.update({'trend': self.f_order * 2 + 1})
 
         return reg_idx, reg_terms
 
@@ -247,8 +240,9 @@ class LinearBrokenTrendFourier(LinearTrendFourier):
     def _regressor_terms(self, t, t_break):
         reg_idx, reg_terms = super()._regressor_terms(t)
 
+        # add trend breaking point
         reg_terms.append(np.where(t > t_break, t - t_break, 0.))
-        reg_idx['trend_change'] = -1
+        reg_idx.update({'trend_change': self.f_order * 2 + 2})
 
         return reg_idx, reg_terms
 
