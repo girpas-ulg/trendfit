@@ -293,23 +293,54 @@ class LinearBrokenTrendFourier(LinearTrendFourier):
         return self._compute_y(t, reg_idx, reg_terms)
 
 
-class NonParametricTrend(BaseEstimator):
+def epanechnikov_kernel(u):
+    mask = np.abs(u) <= 1.
+    weight = 3 / 4 * (1 - u**2)
 
-    def __init__(self, f_order=3):
-        self.f_order = f_order
+    return weight * mask
 
-        self._parameters = {
-            'fourier_terms': [],
-            'intercept': None,
-        }
+
+class KernelTrend(BaseEstimator):
+    """Non-parametric kernel regression.
+
+    """
+    valid_kernels = {
+        'epanechnikov': epanechnikov_kernel
+    }
+
+    def __init__(self, kernel='epanechnikov', bandwidth=None):
 
         super().__init__()
 
+        if isinstance(kernel, str) and kernel in self.valid_kernels:
+            self.kernel_func = self.valid_kernels[kernel]
+        elif callable(kernel):
+            self.kernel_func = kernel
+        else:
+            raise ValueError("Invalid kernel {}".format(kernel))
+
+        self._parameters = {
+            'bandwidth': bandwidth,
+        }
+
+    def _local_constant(self, t, y, tau=None):
+        if tau is None:
+            tau = t
+
+        pairwise_dists = np.subtract.outer(tau, t)
+
+        k = self.kernel_func(pairwise_dists / self._parameters['bandwidth'])
+
+        return k @ y / np.sum(k, axis=1)
+
     def _fit(self, t, y):
-        fourier_model = LinearNoTrendFourier(f_order=self.f_order)
-        fourier_model.fit(t, y)
+        self._t_scaled = (t - t[0]) / (t[-1] - t[0])
 
-        self._parameters.update(fourier_model.parameters)
+        self._parameters['trend'] = self._local_constant(self._t_scaled, y)
 
-        y_ = fourier_model.residuals
-        t_ = (t - t[0]) / (t[-1] - t[0])
+    def _predict(self, t):
+        t_scaled = (t - self._t[0]) / (self._t[-1] - self._t[0])
+
+        m_hat = self._local_constant(self._t_scaled, self._y, t_scaled)
+
+        return m_hat
