@@ -1,10 +1,12 @@
 from setuptools import setup, find_packages
 from os.path import exists
 
+import versioneer
+
 
 setup(name='trendfit',
-      #version=versioneer.get_version(),
-      #cmdclass=versioneer.get_cmdclass(),
+      version=versioneer.get_version(),
+      cmdclass=versioneer.get_cmdclass(),
       description=('Trend analysis and fitting for (atmospheric) time series'),
       url='https://github.com/girpas-ulg/trendfit',
       maintainer='Benoit Bovy',
