@@ -42,13 +42,20 @@ class BootstrapRunner:
             if self.save_models:
                 return mb, pb
             else:
+                del mb
                 return None, pb
 
         if OPTIONS['use_dask']:
             import dask
-            dlyd = [dask.delayed(fit_sample)(np.random.RandomState())
-                    for _ in range(self.n_samples)]
-            res = dask.compute(*dlyd)
+            import dask.bag as db
+
+            sequence = [np.random.RandomState()
+                        for _ in range(self.n_samples)]
+            b = db.from_sequence(sequence, npartitions=100)
+            dlyd = b.map(fit_sample).to_delayed()
+
+            res = dask.compute(*dlyd) # returns a list of 100 lists (npartitions=100) of results (because of dask bag) 
+            res = [item for sublist in res for item in sublist] # flattens the list of list
 
         else:
             res = [fit_sample(self.random_state)
